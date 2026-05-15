@@ -1,0 +1,43 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [
+    "db",
+    "server",
+    "user"
+  ],
+  "dev_command": "pnpm run dev",
+  "env_vars": {
+    "DATABASE_URL": "mysql://iV8kzNZGgbP6rQL.root:Wfu2S7Yi8D94qvUSxyj9@gateway06.us-east-1.prod.aws.tidbcloud.com:4000/kXfj8NHCzvhLDp5VfdGyom?ssl={\"rejectUnauthorized\":true}"
+  },
+  "experiments": [
+    "no_db_push"
+  ],
+  "git_remote": {
+    "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663603421384/kXfj8NHCzvhLDp5VfdGyom",
+    "access_key_id": "ASIAZV3A2ECZNPMAGTD3",
+    "secret_access_key": "EjFRJWimtc2BJsaECwrc199fMqXwYbveKv7TLl/d",
+    "session_token": "IQoJb3JpZ2luX2VjEK7//////////wEaCXVzLWVhc3QtMSJHMEUCIQC70ePFzquwF7j28HoupjaHfr+qa/EZyr7VIGFH1YgV/AIgNsu0lFyqEkFo6oVj7ioUddAa0P8tI6g6gsVDqV0ine4q9gMIdxAEGgw2NjUzODYwOTg4NjYiDO87/8B0JjXA9EXZQirTAxdzoSYV1Ek8bpPgcf7OtoGBVo4ALQb9rE1Y8BHLF7eWR8siiHFtr2HYkgCBOLApKqEkeFR7fkuSa0bX5dHOGvWB3dY2OzUMAk7DRe7ZajX3F99i/StmQHL//Yeod5zVk+3gXhEy4l2e3IJ99w8Opt8nwlqffLkTeIHr3I6lHWGRXl0TIwjU8jtU1ZA4YWujAd9DRPXl8y7b7vznGfmHTxOgYccneMRjkCtFALD1kH+z/q+pSDMY7ej41YWdix5BmFOCP5rH0LvaTw/QW9tTh2j6Egvin1bfrC1h/1r16SrzVdo3ec1ex7CnRlbxY4SN9UPRw2Q81mca8gtNKxQ1VnkdBX00YuoXXcRgc7xW735mr6JJJcsuOp5v7jp1qzHpXxmXhvzzmIgOuDWW+BNv0JPwfW9AyAJtyy4cM+5sX/ebIqJOPYzvNY0AFvp/aSwxOfm0YRABpbWOoqzhpQ+XnajRGOYJOmkkivxAF4EjRtPPU8Mde8XH0Jak12TAozAs7dsHh3t2qeC5rpQjy/DktsQ5+2t2KNiInnzk0KB1/1yCp8VGO7YsyYySmXPN0ocwx7e9VPOyR5vJZNwX/9Fg/SpJ9n7Ok0mjRa7WrC0oS0CMKTkeMOLLnNAGOp0BWxw+6JGlZY0n2M/yl/ruiOP3Ewk5ZB9UuW5jwJnd+LhlRLwlg6MGZ1eDs3XEb06+eg9xbjxekrx7Bq3mHozVU9E644IEJpJMJBv/CwGOK+txDmY6741LrCxgrLdURfvv5lT6uqWE7ShEek3Rnff1GT3X0HKNuD+u3qV+55cabWQNem3bPjJqWCj1c9AXX7JA/LQMTlu4y085YSGAdA==",
+    "expiration": "2026-05-16T01:55:46.000Z"
+  },
+  "name": "soccer-highlight-extractor",
+  "path": "/home/ubuntu/soccer-highlight-extractor",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "N38SWExE5AhdGjQsxaAQze",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "JWT_SECRET": "AuJx23zDb5MguXk4tBzQBE",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OWNER_NAME": "cm mol",
+    "OWNER_OPEN_ID": "VhF7JD23K5LMkG68hU8hfr",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "58582836-f9be-497e-a0b3-a0d53e3384ce",
+    "VITE_APP_ID": "kXfj8NHCzvhLDp5VfdGyom",
+    "VITE_APP_LOGO": "https://files.manuscdn.com/user_upload_by_module/web_dev_logo/310519663603421384/qGZiAdqZFYZzHXJr.png",
+    "VITE_APP_TITLE": "축구 경기 하이라이트 추출 시스템",
+    "VITE_FRONTEND_FORGE_API_KEY": "ZW5Ekykhk5LCRNVKeRaAJA",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-db-user",
+  "test_command": "pnpm test"
+}
