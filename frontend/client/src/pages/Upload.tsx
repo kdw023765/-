@@ -1,12 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Film, UploadCloud, CheckCircle, AlertCircle, Home } from "lucide-react";
+import { uploadVideo, saveRecentJob } from "@/lib/backendApi";
+import { Film, UploadCloud, CheckCircle, Home } from "lucide-react";
 import { toast } from "sonner";
 
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
-const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB per chunk
+const MAX_FILE_SIZE = 500 * 1024 * 1024;
 
 export default function Upload() {
   const [, navigate] = useLocation();
@@ -16,59 +16,8 @@ export default function Upload() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [videoId, setVideoId] = useState<number | null>(null);
-  const [sessionId, setSessionId] = useState<string>("");
+  const [jobId, setJobId] = useState<string | null>(null);
   const [uploadStatusMessage, setUploadStatusMessage] = useState<string>("");
-
-  // 세션 ID 생성 (비로그인 사용자 추적용)
-  useEffect(() => {
-    const id = localStorage.getItem("sessionId") || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    setSessionId(id);
-    localStorage.setItem("sessionId", id);
-  }, []);
-
-  // 청크 업로드 함수
-  const uploadChunk = async (chunk: Blob, chunkIndex: number, totalChunks: number, fileName: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const formData = new FormData();
-      formData.append("chunk", chunk);
-      formData.append("chunkIndex", chunkIndex.toString());
-      formData.append("totalChunks", totalChunks.toString());
-      formData.append("sessionId", sessionId);
-      formData.append("fileName", fileName);
-
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) {
-          const chunkProgress = (e.loaded / e.total) * (1 / totalChunks);
-          const totalProgress = ((chunkIndex / totalChunks) * 100) + (chunkProgress * 100);
-          setUploadProgress(Math.min(totalProgress, 99));
-        }
-      });
-
-      xhr.addEventListener("load", () => {
-        if (xhr.status === 200) {
-          resolve();
-        } else {
-          reject(new Error(`청크 업로드 실패: ${xhr.status}`));
-        }
-      });
-
-      xhr.addEventListener("error", () => {
-        reject(new Error("네트워크 오류가 발생했습니다."));
-      });
-
-      xhr.addEventListener("timeout", () => {
-        reject(new Error("업로드 타임아웃 - 네트워크 연결을 확인하세요."));
-      });
-
-      xhr.timeout = 300000; // 5분 타임아웃
-
-      xhr.open("POST", "/api/upload/chunk");
-      xhr.send(formData);
-    });
-  };
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -92,11 +41,8 @@ export default function Upload() {
     e.stopPropagation();
     setIsDragging(false);
 
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      const file = files[0];
-      validateAndSelectFile(file);
-    }
+    const file = e.dataTransfer.files[0];
+    if (file) validateAndSelectFile(file);
   };
 
   const validateAndSelectFile = (file: File) => {
@@ -114,82 +60,52 @@ export default function Upload() {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.currentTarget.files;
-    if (files && files.length > 0) {
-      validateAndSelectFile(files[0]);
-    }
+    const file = e.currentTarget.files?.[0];
+    if (file) validateAndSelectFile(file);
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !sessionId) {
+    if (!selectedFile) {
       toast.error("파일을 선택해주세요.");
       return;
     }
 
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(20);
     setUploadSuccess(false);
-    setUploadStatusMessage("업로드 준비 중...");
+    setUploadStatusMessage("백엔드로 영상을 업로드하는 중...");
 
     try {
-      const totalChunks = Math.ceil(selectedFile.size / CHUNK_SIZE);
-      setUploadStatusMessage(`${totalChunks}개 청크로 분할하여 업로드 중...`);
+      const job = await uploadVideo(selectedFile);
 
-      // 청크 단위로 업로드
-      for (let i = 0; i < totalChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, selectedFile.size);
-        const chunk = selectedFile.slice(start, end);
-
-        setUploadStatusMessage(`청크 ${i + 1}/${totalChunks} 업로드 중...`);
-        await uploadChunk(chunk, i, totalChunks, selectedFile.name);
-      }
-
-      // 모든 청크 업로드 완료 후 병합 요청
-      setUploadStatusMessage("업로드 완료, 서버에서 처리 중...");
-      setUploadProgress(100);
-
-      const response = await fetch("/api/upload/video", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sessionId,
-          fileName: selectedFile.name,
-          fileSize: selectedFile.size,
-          totalChunks,
-        }),
+      saveRecentJob({
+        job_id: job.job_id,
+        filename: selectedFile.name,
+        uploadedAt: new Date().toISOString(),
+        status: job.status,
       });
 
-      if (!response.ok) {
-        throw new Error("파일 병합 실패");
-      }
-
-      const data = await response.json();
-      
-      setVideoId(data.videoId);
+      setJobId(job.job_id);
+      setUploadProgress(100);
       setUploadSuccess(true);
-      setUploadStatusMessage("업로드 완료!");
+      setUploadStatusMessage(job.message || "업로드가 접수되었습니다.");
       toast.success("영상이 업로드되었습니다!");
 
-      // 설정 페이지로 이동
       setTimeout(() => {
-        navigate(`/settings/${data.videoId}`);
+        navigate(`/settings/${job.job_id}`);
       }, 1000);
     } catch (error) {
-      console.error("Upload error:", error);
       const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류";
       setUploadStatusMessage(`업로드 실패: ${errorMessage}`);
       toast.error(`업로드 오류: ${errorMessage}`);
-      setIsUploading(false);
       setUploadProgress(0);
+    } finally {
+      setIsUploading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
-      {/* Header */}
       <header className="border-b border-slate-200/50 backdrop-blur-sm sticky top-0 z-50 bg-white/80">
         <div className="container h-16 flex items-center justify-between">
           <button
@@ -214,7 +130,6 @@ export default function Upload() {
 
       <main className="container py-12 md:py-20">
         <div className="max-w-2xl mx-auto">
-          {/* Title */}
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-slate-900 mb-4">
               축구 경기 영상 업로드
@@ -222,11 +137,10 @@ export default function Upload() {
             <p className="text-slate-600">
               MP4, WebM 등의 비디오 파일을 업로드하면 자동으로 하이라이트를 추출합니다.
               <br />
-              <span className="text-sm text-slate-500">최대 파일 크기: 500MB (청크 기반 업로드로 빠르게 처리됨)</span>
+              <span className="text-sm text-slate-500">최대 파일 크기: 500MB</span>
             </p>
           </div>
 
-          {/* Upload Area */}
           {!isUploading && !uploadSuccess ? (
             <div
               onDragEnter={handleDragEnter}
@@ -283,7 +197,6 @@ export default function Upload() {
             </div>
           ) : null}
 
-          {/* Upload Progress */}
           {isUploading && !uploadSuccess && (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 space-y-6">
               <div className="flex items-center gap-3">
@@ -295,7 +208,7 @@ export default function Upload() {
                     파일 업로드 중...
                   </h3>
                   <p className="text-sm text-slate-600">
-                    청크 단위로 병렬 처리되고 있습니다.
+                    백엔드 API로 파일을 전송하고 있습니다.
                   </p>
                 </div>
               </div>
@@ -318,8 +231,7 @@ export default function Upload() {
             </div>
           )}
 
-          {/* Upload Complete */}
-          {uploadSuccess && videoId && (
+          {uploadSuccess && jobId && (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 space-y-6">
               <div className="flex items-center gap-3">
                 <CheckCircle className="w-12 h-12 text-green-500" />
@@ -328,14 +240,14 @@ export default function Upload() {
                     업로드 완료!
                   </h3>
                   <p className="text-sm text-slate-600">
-                    설정 페이지로 이동하여 하이라이트 옵션을 설정하세요.
+                    설정 페이지로 이동하여 하이라이트 옵션을 확인하세요.
                   </p>
                 </div>
               </div>
 
               <div className="flex gap-4">
                 <Button
-                  onClick={() => navigate(`/settings/${videoId}`)}
+                  onClick={() => navigate(`/settings/${jobId}`)}
                   className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                 >
                   설정 페이지로 이동
@@ -343,7 +255,7 @@ export default function Upload() {
                 <Button
                   onClick={() => {
                     setSelectedFile(null);
-                    setVideoId(null);
+                    setJobId(null);
                     setUploadProgress(0);
                     setUploadSuccess(false);
                   }}
@@ -356,16 +268,14 @@ export default function Upload() {
             </div>
           )}
 
-          {/* Upload Button */}
           {selectedFile && !isUploading && !uploadSuccess && (
             <div className="mt-8 space-y-6">
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
-                <h3 className="font-semibold text-blue-900 mb-3">💡 청크 기반 업로드</h3>
+                <h3 className="font-semibold text-blue-900 mb-3">업로드 안내</h3>
                 <ul className="space-y-2 text-sm text-blue-800">
-                  <li>• 대용량 파일은 자동으로 10MB 단위로 분할되어 업로드됩니다</li>
-                  <li>• 각 청크는 병렬로 처리되어 전체 속도가 향상됩니다</li>
-                  <li>• 네트워크 오류 시 자동으로 재시도됩니다 (타임아웃: 5분)</li>
-                  <li>• 업로드 후 서버에서 자동으로 청크를 병합합니다</li>
+                  <li>백엔드의 /api/upload 엔드포인트로 영상 파일을 전송합니다.</li>
+                  <li>업로드 후 생성된 작업 ID로 처리 상태를 확인합니다.</li>
+                  <li>실제 하이라이트 분석은 백엔드와 MasterNode가 담당합니다.</li>
                 </ul>
               </div>
               <div className="flex gap-4">

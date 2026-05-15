@@ -39,11 +39,13 @@ export default function Home() {
           {/* Headline */}
           <div className="space-y-4">
             <h2 className="text-5xl md:text-6xl font-bold text-slate-900 leading-tight">
-              축구 경기의
-              <span className="bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
-                {" "}하이라이트
+              <span className="block whitespace-nowrap">
+                축구 경기의{" "}
+                <span className="bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
+                  하이라이트를
+                </span>
               </span>
-              를 자동으로 추출하세요
+              <span className="block whitespace-nowrap">자동으로 추출하세요</span>
             </h2>
             <p className="text-lg md:text-xl text-slate-600 leading-relaxed">
               AI 기반 분석으로 골, 골대 맞고 나간 장면, 파울을 자동 감지하고
