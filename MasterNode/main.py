@@ -28,7 +28,10 @@ class MasterNode:
 
         splitter = VideoSplitter()
 
-        segments = splitter.split(input_path)
+        segments = splitter.split(
+            input_path,
+            segment_count=len(self.nodes)
+        )
 
         tasks = []
 
@@ -41,6 +44,19 @@ class MasterNode:
                 )
             )
 
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True
+        )
 
-        return merge_goal_results(results)
+        valid_results = []
+
+        for result in results:
+
+            if isinstance(result, Exception):
+                print("노드 실패:", result)
+                continue
+
+            valid_results.append(result)
+
+        return merge_goal_results(valid_results)
