@@ -1,16 +1,7 @@
-"""
-Compute Node Server
-- MasterNode로부터 분할 영상 정보를 받음
-- Gemini Vision으로 골 시점을 분석함
-- 분할 영상 기준 시간을 원본 영상 기준 시간으로 보정해 반환함
-"""
-
-import os
 import tempfile
 
-import httpx
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, File, Form, UploadFile
+from pydantic import BaseModel
 
 from gemini_goal_detector import GeminiGoalDetector
 
@@ -20,18 +11,6 @@ RESULT_NAMES = {
     2: "TwoResult",
     3: "ThreeResult",
 }
-
-
-class ComputeNodeError(Exception):
-    pass
-
-
-class ComputeAnalysisRequest(BaseModel):
-    nodeIndex: int
-    videoName: str
-    videoUrl: str
-    startOffsetSec: float
-    originVideoId: str
 
 
 class GoalDetection(BaseModel):
@@ -46,6 +25,7 @@ class ComputeAnalysisResponse(BaseModel):
     resultName: str
     originVideoId: str
     status: str
+    stage: str
     goals: list[GoalDetection] = []
     error: str | None = None
 
@@ -56,16 +36,25 @@ app = FastAPI(title="Compute Node")
 detector = GeminiGoalDetector()
 
 
+@app.get("/health")
+async def health_check():
+
+    return {
+        "status": "ok"
+    }
+
+
 @app.post("/analyze")
-async def analyze_video(request: ComputeAnalysisRequest):
+async def analyze_video(
+    video: UploadFile = File(...),
+    nodeIndex: int = Form(...),
+    startOffsetSec: float = Form(...),
+    originVideoId: str = Form(...)
+):
 
     try:
 
-        video_bytes = await download_video(
-            request.videoUrl
-        )
-
-        temp_path = save_temp_video(video_bytes)
+        temp_path = await save_upload(video)
 
         detected_goals = await detector.detect_goals(
             temp_path
@@ -78,7 +67,7 @@ async def analyze_video(request: ComputeAnalysisRequest):
             local_time = goal.get("timeSec", 0)
 
             global_time = (
-                request.startOffsetSec +
+                startOffsetSec +
                 local_time
             )
 
@@ -91,43 +80,41 @@ async def analyze_video(request: ComputeAnalysisRequest):
             )
 
         return ComputeAnalysisResponse(
-            nodeIndex=request.nodeIndex,
-            resultName=get_result_name(request.nodeIndex),
-            originVideoId=request.originVideoId,
+            nodeIndex=nodeIndex,
+            resultName=get_result_name(nodeIndex),
+            originVideoId=originVideoId,
             status="success",
+            stage="COMPLETED",
             goals=goals
         )
 
     except Exception as error:
 
         return ComputeAnalysisResponse(
-            nodeIndex=request.nodeIndex,
-            resultName=get_result_name(request.nodeIndex),
-            originVideoId=request.originVideoId,
+            nodeIndex=nodeIndex,
+            resultName=get_result_name(nodeIndex),
+            originVideoId=originVideoId,
             status="failed",
+            stage="FAILED",
             error=str(error)
         )
 
 
-async def download_video(video_url: str):
-
-    async with httpx.AsyncClient(timeout=300) as client:
-
-        response = await client.get(video_url)
-
-        response.raise_for_status()
-
-        return response.content
-
-
-def save_temp_video(video_bytes: bytes):
+async def save_upload(video: UploadFile):
 
     temp = tempfile.NamedTemporaryFile(
         delete=False,
         suffix=".mp4"
     )
 
-    temp.write(video_bytes)
+    while True:
+
+        chunk = await video.read(1024 * 1024)
+
+        if not chunk:
+            break
+
+        temp.write(chunk)
 
     temp.close()
 
