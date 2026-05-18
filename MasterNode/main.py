@@ -3,6 +3,7 @@ import asyncio
 from splitter import VideoSplitter
 from merger import merge_goal_results
 from compute_node_client import ComputeNodeClient
+from result_formatter import ResultFormatter
 
 
 class MasterNode:
@@ -24,7 +25,9 @@ class MasterNode:
             )
         ]
 
-    async def process(self, input_path: str):
+        self.formatter = ResultFormatter()
+
+    async def process(self, input_path: str, options: dict):
 
         splitter = VideoSplitter()
 
@@ -59,4 +62,9 @@ class MasterNode:
 
             valid_results.append(result)
 
-        return merge_goal_results(valid_results)
+        merged = merge_goal_results(valid_results)
+
+        return self.formatter.format(
+            merged,
+            options
+        )
