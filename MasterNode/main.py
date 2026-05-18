@@ -1,114 +1,129 @@
 import asyncio
+import logging
 import httpx
-from typing import List, Dict, Any
+from typing import list
 
-# 다른 파일에 정의된 Pydantic 모델 로드 (경로에 맞게 import)
 from models import HighlightResult, GoalEvent
+from config import settings
 
-# 각 컴퓨트 노드의 실제 배치 주소 (네트워크 환경에 맞게 포트/도메인 변경 가능)
+logger = logging.getLogger(__name__)
+
+# 각 컴퓨트 노드의 주소 설정 (환경에 맞게 포트나 도메인 변경 가능)
 COMPUTE_NODE_URLS = {
     1: "http://localhost:8001/analyze",
     2: "http://localhost:8002/analyze",
     3: "http://localhost:8003/analyze",
 }
 
-
 class MasterNode:
-    async def handle_video_request(self, origin_video_id: str, total_duration_minutes: float, job_id: str = "job_default") -> Dict[str, Any]:
+    async def handle_video_request(
+        self, 
+        job_id: str, 
+        origin_video_id: str, 
+        total_duration_seconds: float, 
+        segment_urls: list[str]
+    ) -> HighlightResult:
         """
-        영상을 3등분하여 메타데이터를 만들고, 컴퓨트 노드들을 비동기 병렬로 호출한 뒤,
-        결과를 수신 및 정렬하여 백엔드 스키마(HighlightResult) 규격으로 반환합니다.
+        원본 영상을 3등분하여 컴퓨트 노드들에게 비동기 병렬로 분석을 요청하고,
+        전체 결과를 초 단위로 보정 및 병합하여 최종 HighlightResult를 반환합니다.
         """
-        # 1. 영상 3등분 계산 (분 단위 유지)
-        part_duration = round(total_duration_minutes / 3, 1)
+        # 1. 영상 3등분 계산 (초 단위 통일)
+        part_duration = round(total_duration_seconds / 3, 1)
         dur_1 = part_duration
         dur_2 = part_duration
-        dur_3 = round(total_duration_minutes - (dur_1 + dur_2), 1)
+        dur_3 = round(total_duration_seconds - (dur_1 + dur_2), 1)
 
-        # 분할될 영상 명명 규칙 (compute_node에서 검증하는 이름 포맷 반영)
-        OneVideo = f"{origin_video_id}_part1"
-        TwoVideo = f"{origin_video_id}_part2"
-        ThreeVideo = f"{origin_video_id}_part3"
+        # 2. 오프셋(기준 시간) 계산 (초 단위)
+        offset_1 = 0.0
+        offset_2 = dur_1
+        offset_3 = round(dur_1 + dur_2, 1)
+        offsets = [offset_1, offset_2, offset_3]
 
-        # 2. 오프셋(기준 시간) 계산 및 단위 보정 (★중요 버그 수정: 분 -> 초 변환)
-        # compute_node.py는 초 단위(startOffsetSec)를 기대하므로 60을 곱해줍니다.
-        offset_sec_1 = 0.0 * 60
-        offset_sec_2 = dur_1 * 60
-        offset_sec_3 = round(dur_1 + dur_2, 1) * 60
+        video_names = ["OneVideo", "TwoVideo", "ThreeVideo"]
 
-        # MasterNode의 스토리지 환경에서 분할 영상들이 호스팅되는 모의 URL 주소
-        video_url_1 = f"http://master-node/videos/{OneVideo}.mp4"
-        video_url_2 = f"http://master-node/videos/{TwoVideo}.mp4"
-        video_url_3 = f"http://master-node/videos/{ThreeVideo}.mp4"
-
-        # 3. 컴퓨트노드들에게 영상 및 오프셋 전달 후 결과 수신 (★성능 고도화: 비동기 병렬 처리)
-        # 기존의 순차(동기) 호출 방식을 asyncio.gather를 통한 동시 호출 방식으로 전환하여 대기 시간 3배 단축
-        tasks = [
-            self.send_to_compute_node(1, OneVideo, video_url_1, offset_sec_1, origin_video_id),
-            self.send_to_compute_node(2, TwoVideo, video_url_2, offset_sec_2, origin_video_id),
-            self.send_to_compute_node(3, ThreeVideo, video_url_3, offset_sec_3, origin_video_id),
-        ]
-        
-        # 3개 노드의 네트워크 AI 분석 응답을 동시에 대기
-        node_responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-        all_events: List[GoalEvent] = []
-
-        # 4. 결과 병합 및 데이터 포맷 변환 (ComputeNode 데이터 -> models.py 규격)
-        for i, response in enumerate(node_responses):
+        # 3. 비동기 클라이언트를 사용해 컴퓨트 노드들로 병렬 요청 전송
+        tasks = []
+        for i in range(3):
             node_id = i + 1
-            if isinstance(response, Exception):
-                print(f"[MasterNode] 컴퓨트 노드 {node_id} 통신/처리 중 예외 발생: {response}")
+            tasks.append(
+                self.send_to_compute_node(
+                    node_id=node_id,
+                    video_name=video_names[i],
+                    video_url=segment_urls[i],
+                    offset_sec=offsets[i],
+                    origin_video_id=origin_video_id
+                )
+            )
+
+        # asyncio.gather로 3개의 태스크를 동시에 실행 (병렬 처리)
+        logger.info(f"[Job {job_id}] 3개의 컴퓨트 노드에 병렬 분석 요청을 시작합니다.")
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 4. 결과 병합 및 모델 변환 (ALLResult)
+        all_highlights: list[GoalEvent] = []
+
+        for idx, res in enumerate(raw_results):
+            segment_index = idx  # 0-based index
+            
+            # 예외 발생 처리
+            if isinstance(res, Exception):
+                logger.error(f"컴퓨트 노드 {segment_index + 1} 처리 중 예외 발생: {res}")
                 continue
             
-            if response.get("status") != "success":
-                print(f"[MasterNode] 컴퓨트 노드 {node_id} 분석 실패 원인: {response.get('error')}")
-                continue
+            # 성공 응답 확인
+            if res and res.get("status") == "success":
+                for goal in res.get("goals", []):
+                    global_sec = goal["globalTimeSec"]
+                    
+                    # models.py 요구사항에 맞게 분(Minutes) 단위로 변환
+                    timestamp_minutes = round(global_sec / 60.0, 2)
+                    
+                    # 표시용 문자열 생성 (예: '4분 18초')
+                    m, s = divmod(round(global_sec), 60)
+                    h, m = divmod(m, 60)
+                    timestamp_str = f"{h}시간 {m}분 {s}초" if h > 0 else f"{m}분 {s}초"
 
-            # ComputeNode의 성공 결과(goals) 순회 처리
-            for goal in response.get("goals", []):
-                global_time_sec = goal["globalTimeSec"]
-                
-                # models.py의 GoalEvent 스키마에 맞추기 위해 다시 분(Minutes) 단위로 역산
-                timestamp_minutes = round(global_time_sec / 60, 2)
-                
-                # 표기용 포맷팅 (예: 260초 -> "4분 20초")
-                minutes, seconds = divmod(round(global_time_sec), 60)
-                timestamp_str = f"{minutes}분 {seconds}초"
+                    event = GoalEvent(
+                        timestamp_minutes=timestamp_minutes,
+                        timestamp_str=timestamp_str,
+                        segment_index=segment_index,
+                        confidence=goal["confidence"],
+                        description=goal.get("description")
+                    )
+                    all_highlights.append(event)
+            else:
+                error_msg = res.get("error") if res else "Unknown Error"
+                logger.error(f"컴퓨트 노드 {segment_index + 1} 분석 실패: {error_msg}")
 
-                # Pydantic 모델 인스턴스 생성
-                event = GoalEvent(
-                    timestamp_minutes=timestamp_minutes,
-                    timestamp_str=timestamp_str,
-                    segment_index=node_id - 1,  # 0-based index
-                    confidence=goal["confidence"],
-                    description=goal.get("description")
-                )
-                all_events.append(event)
+        # 전체 하이라이트 시간을 원본 영상 기준 절대 시간으로 정렬
+        all_highlights.sort(key=lambda x: x.timestamp_minutes)
 
-        # 전체 하이라이트 이벤트를 시간 순서(분 기준)로 오름차순 정렬
-        all_events.sort(key=lambda x: x.timestamp_minutes)
-
-        # 5. BackendAPI가 수신할 최종 결과 객체(HighlightResult) 빌드
-        final_result = HighlightResult(
+        # 5. 최종 결과 반환
+        total_duration_minutes = round(total_duration_seconds / 60.0, 2)
+        return HighlightResult(
             job_id=job_id,
             total_duration_minutes=total_duration_minutes,
-            highlights=all_events,
+            highlights=all_highlights,
             segment_count=3
         )
 
-        # 백엔드 서버나 API 응답으로 내보낼 수 있도록 딕셔너리로 직렬화하여 반환
-        return final_result.model_dump()
-
-    async def send_to_compute_node(self, node_id: int, video_name: str, video_url: str, offset_sec: float, origin_video_id: str) -> Dict[str, Any]:
+    async def send_to_compute_node(
+        self, 
+        node_id: int, 
+        video_name: str, 
+        video_url: str, 
+        offset_sec: float, 
+        origin_video_id: str
+    ) -> dict | None:
         """
-        HTTP 통신을 통해 개별 ComputeNode의 /analyze 엔드포인트를 호출하는 함수입니다.
+        개별 컴퓨트 노드에 HTTP POST로 분석을 요청하는 비동기 함수입니다.
         """
         url = COMPUTE_NODE_URLS.get(node_id)
         if not url:
-            return {"nodeIndex": node_id, "status": "failed", "error": f"유효하지 않은 노드 번호: {node_id}"}
+            logger.error(f"노드 {node_id}에 해당하는 URL 설정이 없습니다.")
+            return None
 
-        # compute_node.py의 ComputeAnalysisRequest 검증 스키마와 1:1 완벽 대응하는 페이로드
+        # compute_node.py의 ComputeAnalysisRequest 스키마에 맞춤
         payload = {
             "nodeIndex": node_id,
             "videoName": video_name,
@@ -117,17 +132,17 @@ class MasterNode:
             "originVideoId": origin_video_id
         }
 
+        # 대용량 영상 처리를 고려해 config에 정의된 대기 시간 타임아웃 적용
+        timeout = httpx.Timeout(settings.MASTER_TIMEOUT, connect=10.0)
+
         try:
-            # 대용량 처리를 감안하여 타임아웃을 300초(5분)로 넉넉하게 설정
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, json=payload)
                 response.raise_for_status()
                 return response.json()  # ComputeAnalysisResponse 형태의 딕셔너리 반환
-        except Exception as e:
-            # 특정 노드 통신 실패가 전체 마스터 노드 크래시로 이어지지 않도록 예외 캡슐화
-            return {
-                "nodeIndex": node_id,
-                "status": "failed",
-                "error": f"컴퓨트 노드 네트워크 통신 실패: {str(e)}",
-                "goals": []
-            }
+        except httpx.HTTPStatusError as e:
+            logger.error(f"컴퓨트 노드 {node_id} HTTP 에러 ({e.response.status_code})")
+            return {"status": "failed", "error": f"HTTP {e.response.status_code}"}
+        except httpx.RequestError as e:
+            logger.error(f"컴퓨트 노드 {node_id} 연결 실패: {e}")
+            return {"status": "failed", "error": f"Connection failed: {e}"}
