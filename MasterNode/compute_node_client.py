@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 
@@ -9,20 +11,43 @@ class ComputeNodeClient:
 
     async def analyze(self, segment_path: str, offset: float):
 
-        payload = {
-            "nodeIndex": self.node_id,
-            "videoName": f"segment_{self.node_id}.mp4",
-            "videoUrl": segment_path,
-            "startOffsetSec": offset,
-            "originVideoId": "OriginVideo"
-        }
+        retries = 2
 
-        async with httpx.AsyncClient(timeout=300) as client:
-            response = await client.post(
-                f"{self.host}/analyze",
-                json=payload
-            )
+        for attempt in range(retries):
 
-            response.raise_for_status()
+            try:
 
-            return response.json()
+                with open(segment_path, "rb") as video_file:
+
+                    files = {
+                        "video": (
+                            f"segment_{self.node_id}.mp4",
+                            video_file,
+                            "video/mp4"
+                        )
+                    }
+
+                    data = {
+                        "nodeIndex": str(self.node_id),
+                        "startOffsetSec": str(offset),
+                        "originVideoId": "OriginVideo"
+                    }
+
+                    async with httpx.AsyncClient(timeout=300) as client:
+
+                        response = await client.post(
+                            f"{self.host}/analyze",
+                            files=files,
+                            data=data
+                        )
+
+                        response.raise_for_status()
+
+                        return response.json()
+
+            except Exception:
+
+                if attempt == retries - 1:
+                    raise
+
+                await asyncio.sleep(2)
