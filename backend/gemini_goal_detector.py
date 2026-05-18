@@ -21,12 +21,11 @@ class GeminiGoalDetector:
         uploaded_file = genai.upload_file(video_path)
 
         prompt = """
-        이 영상은 축구 경기 영상이다.
+        축구 경기 영상이다.
 
-        반드시 골 장면 발생 시간만 찾아라.
+        골 장면 발생 시간만 초(second) 단위 JSON으로 반환해라.
 
-        응답은 반드시 아래 JSON 형식만 반환해라.
-
+        예시:
         {
             \"goals\": [
                 {
@@ -34,10 +33,6 @@ class GeminiGoalDetector:
                 }
             ]
         }
-
-        설명 금지.
-        markdown 금지.
-        코드블럭 금지.
         """
 
         response = self.model.generate_content([
@@ -47,10 +42,14 @@ class GeminiGoalDetector:
 
         text = response.text.strip()
 
-        if text.startswith("```"):
-            text = text.replace("```json", "")
-            text = text.replace("```", "")
+        text = text.replace("```json", "")
+        text = text.replace("```", "")
 
-        parsed = json.loads(text)
+        try:
 
-        return parsed.get("goals", [])
+            parsed = json.loads(text)
+
+            return parsed.get("goals", [])
+
+        except Exception:
+            return []
