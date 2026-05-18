@@ -1,15 +1,18 @@
 """
 Compute Node Server
 - MasterNode로부터 분할 영상 정보를 받음
-- OriginAPI로 골 시점을 분석함
+- Gemini Vision으로 골 시점을 분석함
 - 분할 영상 기준 시간을 원본 영상 기준 시간으로 보정해 반환함
 """
 
+import os
+import tempfile
+
 import httpx
 from fastapi import FastAPI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from config import settings
+from gemini_goal_detector import GeminiGoalDetector
 
 
 RESULT_NAMES = {
@@ -24,22 +27,11 @@ class ComputeNodeError(Exception):
 
 
 class ComputeAnalysisRequest(BaseModel):
-    nodeIndex: int = Field(..., ge=1, le=3, description="컴퓨트 노드 번호")
-    videoName: str = Field(..., min_length=1, description="OneVideo/TwoVideo/ThreeVideo")
-    videoUrl: str = Field(..., min_length=1, description="MasterNode가 제공한 분할 영상 URL")
-    startOffsetSec: float = Field(..., ge=0, description="원본 영상 기준 세그먼트 시작 초")
-    originVideoId: str = Field(..., min_length=1, description="원본 영상 ID")
-
-
-class OriginGoal(BaseModel):
-    timeSec: float = Field(..., ge=0, description="분할 영상 내부 기준 골 발생 초")
-    label: str = Field("goal", description="이벤트 라벨")
-    confidence: float = Field(1.0, ge=0.0, le=1.0, description="AI 신뢰도")
-    description: str | None = Field(None, description="추가 설명")
-
-
-class OriginAPIResponse(BaseModel):
-    goals: list[OriginGoal] = Field(default_factory=list)
+    nodeIndex: int
+    videoName: str
+    videoUrl: str
+    startOffsetSec: float
+    originVideoId: str
 
 
 class GoalDetection(BaseModel):
@@ -47,8 +39,6 @@ class GoalDetection(BaseModel):
     globalTimeSec: float
     timeString: str
     label: str = "goal"
-    confidence: float = Field(1.0, ge=0.0, le=1.0)
-    description: str | None = None
 
 
 class ComputeAnalysisResponse(BaseModel):
@@ -56,106 +46,104 @@ class ComputeAnalysisResponse(BaseModel):
     resultName: str
     originVideoId: str
     status: str
-    goals: list[GoalDetection] = Field(default_factory=list)
+    goals: list[GoalDetection] = []
     error: str | None = None
 
 
-app = FastAPI(
-    title="Video Highlight Compute Node",
-    description="분할 영상에서 골 시점을 추출하고 원본 영상 기준 시간으로 보정하는 컴퓨트 노드",
-    version="1.0.0",
-)
+app = FastAPI(title="Compute Node")
 
 
-@app.post("/analyze", response_model=ComputeAnalysisResponse, summary="분할 영상 분석")
+detector = GeminiGoalDetector()
+
+
+@app.post("/analyze")
 async def analyze_video(request: ComputeAnalysisRequest):
+
     try:
-        video_bytes = await download_video(request.videoUrl)
-        origin_goals = await call_origin_api(video_bytes, request.videoName)
-        goals = [
-            build_goal_detection(goal, request.startOffsetSec)
-            for goal in origin_goals
-        ]
+
+        video_bytes = await download_video(
+            request.videoUrl
+        )
+
+        temp_path = save_temp_video(video_bytes)
+
+        detected_goals = await detector.detect_goals(
+            temp_path
+        )
+
+        goals = []
+
+        for goal in detected_goals:
+
+            local_time = goal.get("timeSec", 0)
+
+            global_time = (
+                request.startOffsetSec +
+                local_time
+            )
+
+            goals.append(
+                GoalDetection(
+                    localTimeSec=local_time,
+                    globalTimeSec=global_time,
+                    timeString=format_time(global_time)
+                )
+            )
+
         return ComputeAnalysisResponse(
             nodeIndex=request.nodeIndex,
             resultName=get_result_name(request.nodeIndex),
             originVideoId=request.originVideoId,
             status="success",
-            goals=goals,
+            goals=goals
         )
-    except ComputeNodeError as error:
-        failed = ComputeAnalysisResponse(
+
+    except Exception as error:
+
+        return ComputeAnalysisResponse(
             nodeIndex=request.nodeIndex,
             resultName=get_result_name(request.nodeIndex),
             originVideoId=request.originVideoId,
             status="failed",
-            error=str(error),
+            error=str(error)
         )
-        return failed
 
 
-def get_result_name(node_index: int) -> str:
+async def download_video(video_url: str):
+
+    async with httpx.AsyncClient(timeout=300) as client:
+
+        response = await client.get(video_url)
+
+        response.raise_for_status()
+
+        return response.content
+
+
+def save_temp_video(video_bytes: bytes):
+
+    temp = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mp4"
+    )
+
+    temp.write(video_bytes)
+
+    temp.close()
+
+    return temp.name
+
+
+def get_result_name(node_index: int):
     return RESULT_NAMES[node_index]
 
 
-def build_goal_detection(goal: OriginGoal, start_offset_sec: float) -> GoalDetection:
-    global_time_sec = start_offset_sec + goal.timeSec
-    return GoalDetection(
-        localTimeSec=goal.timeSec,
-        globalTimeSec=global_time_sec,
-        timeString=format_time_string(global_time_sec),
-        label=goal.label,
-        confidence=goal.confidence,
-        description=goal.description,
-    )
+def format_time(total_seconds: float):
 
+    seconds = int(total_seconds)
 
-def format_time_string(total_seconds: float) -> str:
-    seconds = round(total_seconds)
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-    return f"{minutes:02d}:{seconds:02d}"
+    minutes = seconds // 60
 
+    remain = seconds % 60
 
-async def download_video(video_url: str) -> bytes:
-    try:
-        async with httpx.AsyncClient(timeout=settings.VIDEO_DOWNLOAD_TIMEOUT) as client:
-            response = await client.get(video_url)
-            response.raise_for_status()
-            return response.content
-    except httpx.HTTPStatusError as error:
-        raise ComputeNodeError(f"분할 영상 다운로드 HTTP 오류: {error.response.status_code}") from error
-    except httpx.RequestError as error:
-        raise ComputeNodeError(f"분할 영상 다운로드 실패: {error}") from error
-
-
-async def call_origin_api(video_bytes: bytes, video_name: str) -> list[OriginGoal]:
-    try:
-        async with httpx.AsyncClient(timeout=settings.ORIGIN_API_TIMEOUT) as client:
-            response = await client.post(
-                settings.ORIGIN_API_URL,
-                files={"file": (video_name, video_bytes, "application/octet-stream")},
-                data={"videoName": video_name},
-            )
-            response.raise_for_status()
-            payload = response.json()
-    except httpx.HTTPStatusError as error:
-        raise ComputeNodeError(f"OriginAPI HTTP 오류: {error.response.status_code}") from error
-    except httpx.RequestError as error:
-        raise ComputeNodeError(f"OriginAPI 연결 실패: {error}") from error
-    except ValueError as error:
-        raise ComputeNodeError("OriginAPI 응답이 JSON 형식이 아닙니다.") from error
-
-    return parse_origin_goals(payload)
-
-
-def parse_origin_goals(payload: object) -> list[OriginGoal]:
-    if not isinstance(payload, dict) or "goals" not in payload:
-        raise ComputeNodeError("OriginAPI 응답 형식 오류: goals 필드가 필요합니다.")
-
-    try:
-        return OriginAPIResponse.model_validate({"goals": payload["goals"]}).goals
-    except ValidationError as error:
-        raise ComputeNodeError(f"OriginAPI 응답 형식 오류: {error}") from error
+    return f"{minutes:02d}:{remain:02d}"
