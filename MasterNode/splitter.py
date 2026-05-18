@@ -9,20 +9,20 @@ class VideoSplitter:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
-    def split(self, input_path: str):
+    def split(self, input_path: str, segment_count: int = 3):
 
         clip = VideoFileClip(input_path)
         duration = int(clip.duration)
 
-        chunk_duration = duration // 3
+        chunk_duration = duration // segment_count
 
         results = []
 
-        for index in range(3):
+        for index in range(segment_count):
 
             start = index * chunk_duration
 
-            if index == 2:
+            if index == segment_count - 1:
                 end = duration
             else:
                 end = (index + 1) * chunk_duration
@@ -31,7 +31,8 @@ class VideoSplitter:
                 self.output_dir,
                 f"segment_{index + 1}.mp4"
             )
-    cmd = [
+
+            cmd = [
                 "ffmpeg",
                 "-i",
                 input_path,
@@ -39,16 +40,23 @@ class VideoSplitter:
                 str(start),
                 "-to",
                 str(end),
-                "-c",
-                "copy",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
                 output_path,
                 "-y"
             ]
 
-            subprocess.run(cmd)
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True
+            )
 
             results.append({
-                "segment_index": index,
+                "segment_index": index + 1,
                 "path": output_path,
                 "offset": start
             })
