@@ -7,24 +7,48 @@ def merge_goal_results(results: list):
         if not result:
             continue
 
-        if isinstance(result, dict) and "goals" in result:
-            merged.extend(result["goals"])
+        goals = []
+
+        if isinstance(result, dict):
+            goals = result.get("goals", [])
+
         elif isinstance(result, list):
-            merged.extend(result)
+            goals = result
+
+        for goal in goals:
+
+            if not isinstance(goal, dict):
+                continue
+
+            if "globalTimeSec" not in goal:
+                continue
+
+            merged.append(goal)
 
     merged.sort(
         key=lambda x: x.get("globalTimeSec", 0)
     )
 
     filtered = []
-    last_time = -999
 
     for goal in merged:
 
+        duplicated = False
+
         current_time = goal.get("globalTimeSec", 0)
 
-        if current_time - last_time > 5:
+        for saved in filtered:
+
+            diff = abs(
+                saved.get("globalTimeSec", 0) -
+                current_time
+            )
+
+            if diff <= 10:
+                duplicated = True
+                break
+
+        if not duplicated:
             filtered.append(goal)
-            last_time = current_time
 
     return filtered
