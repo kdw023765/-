@@ -4,6 +4,7 @@ from splitter import VideoSplitter
 from merger import merge_goal_results
 from compute_node_client import ComputeNodeClient
 from result_formatter import ResultFormatter
+from highlight_video_generator import HighlightVideoGenerator
 
 
 class MasterNode:
@@ -26,6 +27,10 @@ class MasterNode:
         ]
 
         self.formatter = ResultFormatter()
+
+        self.highlight_generator = (
+            HighlightVideoGenerator()
+        )
 
     async def process(self, input_path: str, options: dict):
 
@@ -64,7 +69,20 @@ class MasterNode:
 
         merged = merge_goal_results(valid_results)
 
-        return self.formatter.format(
+        highlight_path = (
+            self.highlight_generator.generate(
+                input_path,
+                merged
+            )
+        )
+
+        formatted = self.formatter.format(
             merged,
             options
         )
+
+        formatted["highlightVideo"] = highlight_path
+
+        formatted["ALLResult"] = merged
+
+        return formatted
