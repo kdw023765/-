@@ -1,4 +1,6 @@
+import json
 import os
+import subprocess
 import tempfile
 
 import httpx
@@ -75,7 +77,7 @@ async def process_video(
 
     payload = HighlightResult(
         job_id=job_id,
-        total_duration_minutes=90,
+        total_duration_minutes=get_video_duration_minutes(temp_path),
         highlights=highlights,
         segment_count=3,
         highlightVideo=result.get("highlightVideo")
@@ -113,3 +115,32 @@ async def save_upload(video: UploadFile):
     temp.close()
 
     return temp.name
+
+
+def get_video_duration_minutes(video_path: str) -> float:
+
+    try:
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                video_path
+            ],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        metadata = json.loads(completed.stdout)
+        duration_sec = float(metadata["format"]["duration"])
+
+        return duration_sec / 60
+
+    except Exception as error:
+        print("영상 길이 조회 실패:", error)
+        return 0
