@@ -16,15 +16,15 @@ class HighlightVideoGenerator:
 
         for index, goal in enumerate(all_result):
 
-            start = max(goal["globalTimeSec"] - 10, 0)
-            end = goal["globalTimeSec"] + 10
+            start = max(float(goal["globalTimeSec"]) - 10, 0)
+            end = float(goal["globalTimeSec"]) + 10
 
-            output_clip = os.path.join(
+            output_clip = os.path.abspath(os.path.join(
                 self.output_dir,
                 f"clip_{index}.mp4"
-            )
+            ))
 
-            subprocess.run([
+            result = subprocess.run([
                 "ffmpeg",
                 "-y",
                 "-ss",
@@ -38,24 +38,31 @@ class HighlightVideoGenerator:
                 output_clip
             ])
 
+            if result.returncode != 0:
+                raise RuntimeError(f"하이라이트 클립 생성 실패: {output_clip}")
+
             clips.append(output_clip)
 
-        concat_file = os.path.join(
+        if not clips:
+            raise RuntimeError("생성할 하이라이트 클립이 없습니다.")
+
+        concat_file = os.path.abspath(os.path.join(
             self.output_dir,
             "concat.txt"
-        )
+        ))
 
-        with open(concat_file, "w") as file:
+        with open(concat_file, "w", encoding="utf-8") as file:
 
             for clip in clips:
-                file.write(f"file '{clip}'\n")
+                safe_clip = clip.replace(os.sep, "/")
+                file.write(f"file '{safe_clip}'\n")
 
-        final_output = os.path.join(
+        final_output = os.path.abspath(os.path.join(
             self.output_dir,
             "final_highlight.mp4"
-        )
+        ))
 
-        subprocess.run([
+        result = subprocess.run([
             "ffmpeg",
             "-y",
             "-f",
@@ -68,5 +75,8 @@ class HighlightVideoGenerator:
             "copy",
             final_output
         ])
+
+        if result.returncode != 0:
+            raise RuntimeError(f"최종 하이라이트 영상 생성 실패: {final_output}")
 
         return final_output
