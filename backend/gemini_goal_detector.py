@@ -17,7 +17,7 @@ class GeminiGoalDetector:
         genai.configure(api_key=api_key)
 
         self.model = genai.GenerativeModel(
-            "gemini-1.5-flash"
+            "gemini-2.5-pro"
         )
 
     async def detect_goals(self, video_path: str):
