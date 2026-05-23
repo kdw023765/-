@@ -69,20 +69,22 @@ class MasterNode:
 
         merged = merge_goal_results(valid_results)
 
-        highlight_path = (
-            self.highlight_generator.generate(
-                input_path,
-                merged
-            )
-        )
-
         formatted = self.formatter.format(
             merged,
             options
         )
 
-        formatted["highlightVideo"] = highlight_path
-
         formatted["ALLResult"] = merged
+        formatted["highlightVideo"] = None
+
+        if merged:
+            formatted["highlightVideo"] = (
+                self.highlight_generator.generate(
+                    input_path,
+                    merged
+                )
+            )
+        else:
+            print("하이라이트 없음: 감지된 골 장면이 없습니다.")
 
         return formatted
