@@ -53,5 +53,8 @@ class GeminiGoalDetector:
 
             return parsed.get("goals", [])
 
-        except Exception:
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(e)
             return []
