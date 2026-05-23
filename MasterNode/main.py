@@ -14,15 +14,15 @@ class MasterNode:
         self.nodes = [
             ComputeNodeClient(
                 node_id=1,
-                host="http://192.168.0.101:8001"
+                host="http://127.0.0.1:9101"
             ),
             ComputeNodeClient(
                 node_id=2,
-                host="http://192.168.0.102:8002"
+                host="http://127.0.0.1:9102"
             ),
             ComputeNodeClient(
                 node_id=3,
-                host="http://192.168.0.103:8003"
+                host="http://127.0.0.1:9103"
             )
         ]
 
