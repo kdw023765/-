@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 
 import google.generativeai as genai
 
@@ -23,6 +24,8 @@ class GeminiGoalDetector:
     async def detect_goals(self, video_path: str):
 
         uploaded_file = genai.upload_file(video_path)
+
+        uploaded_file = self._wait_until_file_active(uploaded_file)
 
         prompt = """
         축구 경기 영상이다.
@@ -77,3 +80,35 @@ class GeminiGoalDetector:
 
         except Exception as e:
             raise RuntimeError(f"Gemini goal detection failed: {e}")
+
+    def _wait_until_file_active(self, uploaded_file, timeout_sec: int = 120):
+
+        deadline = time.time() + timeout_sec
+
+        while uploaded_file.state.name == "PROCESSING":
+
+            if time.time() > deadline:
+                raise RuntimeError(
+                    f"Gemini 파일 처리 시간 초과: {uploaded_file.name}"
+                )
+
+            print(
+                f"Gemini 파일 처리 중: {uploaded_file.name}, "
+                f"state={uploaded_file.state.name}"
+            )
+
+            time.sleep(2)
+            uploaded_file = genai.get_file(uploaded_file.name)
+
+        if uploaded_file.state.name != "ACTIVE":
+            raise RuntimeError(
+                f"Gemini 파일이 ACTIVE 상태가 아닙니다: "
+                f"{uploaded_file.name}, state={uploaded_file.state.name}"
+            )
+
+        print(
+            f"Gemini 파일 사용 가능: {uploaded_file.name}, "
+            f"state={uploaded_file.state.name}"
+        )
+
+        return uploaded_file
