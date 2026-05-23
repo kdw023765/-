@@ -39,6 +39,8 @@ class GeminiGoalDetector:
             uploaded_file,
             prompt
         ])
+        print("===== GEMINI RESPONSE =====")
+        print(response.text)
 
         text = response.text.strip()
 
