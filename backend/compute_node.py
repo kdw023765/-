@@ -1,6 +1,9 @@
 import tempfile
 
 from fastapi import FastAPI, File, Form, UploadFile
+from dotenv import load_dotenv
+load_dotenv()
+
 from pydantic import BaseModel
 
 from gemini_goal_detector import GeminiGoalDetector
