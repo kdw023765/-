@@ -22,7 +22,7 @@ export default function Processing() {
   const storedJob = useMemo(() => (videoId ? getStoredJob(videoId) : undefined), [videoId]);
 
   useEffect(() => {
-    if (!videoId || isCompleted) return;
+    if (!videoId) return;
 
     let cancelled = false;
     let timer: number | undefined;
@@ -59,7 +59,7 @@ export default function Processing() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [videoId, isCompleted, setLocation]);
+  }, [videoId, setLocation]);
 
   if (!videoId) {
     return (
