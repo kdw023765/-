@@ -17,6 +17,11 @@ class ComputeNodeClient:
 
             try:
 
+                print(
+                    f"[ComputeNode {self.node_id}] request: "
+                    f"host={self.host}, segment={segment_path}, offset={offset}"
+                )
+
                 with open(segment_path, "rb") as video_file:
 
                     files = {
@@ -41,11 +46,29 @@ class ComputeNodeClient:
                             data=data
                         )
 
+                        print(
+                            f"[ComputeNode {self.node_id}] "
+                            f"status={response.status_code}, body={response.text}"
+                        )
+
                         response.raise_for_status()
 
-                        return response.json()
+                        result = response.json()
 
-            except Exception:
+                        if result.get("status") == "failed":
+                            raise RuntimeError(
+                                f"ComputeNode {self.node_id} failed: "
+                                f"{result.get('error')}"
+                            )
+
+                        return result
+
+            except Exception as error:
+
+                print(
+                    f"[ComputeNode {self.node_id}] attempt "
+                    f"{attempt + 1}/{retries} failed: {error}"
+                )
 
                 if attempt == retries - 1:
                     raise
