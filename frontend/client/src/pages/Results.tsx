@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
-import { getJobStatus, getStoredJob, type GoalEvent, type JobResponse } from "@/lib/backendApi";
+import { getJobStatus, getStoredJob, resolveBackendUrl, type GoalEvent, type JobResponse } from "@/lib/backendApi";
 import { Film, Home, Play, Zap, Clock, FileText, SlidersHorizontal } from "lucide-react";
 
 function formatMinutes(value: number) {
@@ -42,6 +42,7 @@ function getStoredOutputOptions(videoId?: string) {
 export default function Results() {
   const [, navigate] = useLocation();
   const { videoId } = useParams<{ videoId: string }>();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const [job, setJob] = useState<JobResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,9 +61,20 @@ export default function Results() {
   const result = job?.result;
   const highlights = result?.highlights || [];
   const durationMinutes = result?.total_duration_minutes || 0;
+  const uploadedVideoUrl = resolveBackendUrl(job?.video_url);
   const showTimeline = selectedOutputOptions.includes("timeline");
   const showTxt = selectedOutputOptions.includes("txt");
   const showHandle = selectedOutputOptions.includes("handle");
+
+  const seekToHighlight = (highlight: GoalEvent) => {
+    const seconds = Math.max(0, highlight.timestamp_minutes * 60);
+
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play().catch(() => undefined);
+      videoRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -186,6 +198,39 @@ export default function Results() {
             </div>
           ) : (
             <div className="space-y-6">
+              <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-4">
+                  <Play className="w-5 h-5 text-blue-600" />
+                  <h4 className="text-lg font-semibold text-slate-900">업로드한 영상</h4>
+                </div>
+
+                {uploadedVideoUrl ? (
+                  <div className="space-y-4">
+                    <video
+                      ref={videoRef}
+                      src={uploadedVideoUrl}
+                      controls
+                      className="w-full rounded-xl bg-black max-h-[520px]"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {highlights.map((highlight, index) => (
+                        <button
+                          key={`video-jump-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                          onClick={() => seekToHighlight(highlight)}
+                          className="px-3 py-2 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-sm font-semibold hover:bg-blue-100 transition-colors"
+                        >
+                          {index + 1}. {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)} 이동
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 rounded-xl p-6 text-sm text-slate-600 text-center">
+                    업로드 영상 URL이 없습니다. 새로 업로드한 영상부터 표시됩니다.
+                  </div>
+                )}
+              </div>
+
               {showHandle && (
                 <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2 mb-4">
@@ -199,16 +244,18 @@ export default function Results() {
                         : 0;
 
                       return (
-                        <div
+                        <button
                           key={`handle-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                          onClick={() => seekToHighlight(highlight)}
                           className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
                           style={{ left: `${percent}%` }}
+                          title={highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)}
                         >
-                          <div className="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow" />
-                          <div className="hidden group-hover:block absolute left-1/2 -translate-x-1/2 top-6 whitespace-nowrap bg-slate-900 text-white text-xs rounded px-2 py-1 z-10">
+                          <span className="block w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow" />
+                          <span className="hidden group-hover:block absolute left-1/2 -translate-x-1/2 top-6 whitespace-nowrap bg-slate-900 text-white text-xs rounded px-2 py-1 z-10">
                             {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)}
-                          </div>
-                        </div>
+                          </span>
+                        </button>
                       );
                     })}
                   </div>
@@ -227,9 +274,10 @@ export default function Results() {
                   </div>
                   <div className="space-y-4">
                     {highlights.map((highlight, index) => (
-                      <div
+                      <button
                         key={`timeline-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
-                        className="flex gap-4"
+                        onClick={() => seekToHighlight(highlight)}
+                        className="flex gap-4 w-full text-left rounded-xl hover:bg-slate-50 transition-colors"
                       >
                         <div className="flex flex-col items-center">
                           <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
@@ -245,7 +293,7 @@ export default function Results() {
                             영상 기준 {formatKoreanTime(highlight.timestamp_minutes)} · 신뢰도 {getConfidencePercent(highlight)}%
                           </p>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -259,9 +307,13 @@ export default function Results() {
                   </div>
                   <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-800 leading-7">
                     {highlights.map((highlight, index) => (
-                      <p key={`txt-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}>
+                      <button
+                        key={`txt-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                        onClick={() => seekToHighlight(highlight)}
+                        className="block w-full text-left hover:text-blue-700 transition-colors"
+                      >
                         {index + 1}. 골 장면은 {formatKoreanTime(highlight.timestamp_minutes)}에 발생했습니다.
-                      </p>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -273,9 +325,12 @@ export default function Results() {
                     key={`${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
                     className="bg-white rounded-2xl overflow-hidden border border-slate-200 hover:border-blue-300 hover:shadow-lg transition-all duration-300"
                   >
-                    <div className="bg-gradient-to-br from-slate-200 to-slate-300 h-40 flex items-center justify-center relative group">
+                    <button
+                      onClick={() => seekToHighlight(highlight)}
+                      className="bg-gradient-to-br from-slate-200 to-slate-300 h-40 w-full flex items-center justify-center relative group"
+                    >
                       <Play className="w-12 h-12 text-white opacity-60" />
-                    </div>
+                    </button>
 
                     <div className="p-6">
                       <div className="flex items-center justify-between mb-4">
@@ -314,9 +369,13 @@ export default function Results() {
                         </p>
                       )}
 
-                      <Button variant="outline" className="w-full" disabled>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => seekToHighlight(highlight)}
+                      >
                         <Play className="w-4 h-4 mr-2" />
-                        클립 재생 준비 중
+                        해당 시점 재생
                       </Button>
                     </div>
                   </div>
