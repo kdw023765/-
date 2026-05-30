@@ -1,4 +1,5 @@
 const configuredApiBaseUrl = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, "");
+export const BACKEND_BASE_URL = configuredApiBaseUrl || "http://localhost:8000";
 const API_BASE_URLS = configuredApiBaseUrl
   ? [configuredApiBaseUrl]
   : ["", "http://localhost:8000"];
@@ -26,6 +27,7 @@ export interface JobResponse {
   message?: string | null;
   result?: HighlightResult | null;
   error?: string | null;
+  video_url?: string | null;
 }
 
 export interface StoredJob {
@@ -73,6 +75,13 @@ async function fetchFromBackend<T>(path: string, init?: RequestInit): Promise<T>
   throw new Error(
     `백엔드에 연결하지 못했습니다. /api 프록시와 http://localhost:8000을 순서대로 시도했습니다. (${detail})`
   );
+}
+
+export function resolveBackendUrl(path?: string | null) {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const cleanPath = path.startsWith("/") ? path : "/" + path;
+  return BACKEND_BASE_URL + cleanPath;
 }
 
 export async function uploadVideo(file: File): Promise<JobResponse> {
