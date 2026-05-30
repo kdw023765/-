@@ -4,17 +4,20 @@ Backend API Server
 - MasterNode로부터 하이라이트 결과를 수신하여 FrontWeb에 반환
 """
 
+import os
 import uuid
-import asyncio
 import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from config import settings
 from models import JobStatus, HighlightResult, JobResponse
 from job_store import job_store
+
+UPLOAD_DIR = os.path.abspath("uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @asynccontextmanager
@@ -39,6 +42,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+def _safe_extension(filename: str | None) -> str:
+    if not filename or "." not in filename:
+        return ".mp4"
+
+    extension = os.path.splitext(filename)[1].lower()
+    if extension in {".mp4", ".mov", ".webm", ".mkv", ".avi"}:
+        return extension
+
+    return ".mp4"
+
 
 # ──────────────────────────────────────────────
 # 1. FrontWeb → BackendAPI: 영상 업로드
@@ -58,8 +74,17 @@ async def upload_video(
     job_id = str(uuid.uuid4())
     video_bytes = await file.read()
 
+    extension = _safe_extension(file.filename)
+    stored_filename = f"{job_id}{extension}"
+    stored_path = os.path.join(UPLOAD_DIR, stored_filename)
+
+    with open(stored_path, "wb") as uploaded_video:
+        uploaded_video.write(video_bytes)
+
+    video_url = f"/uploads/{stored_filename}"
+
     # job 등록
-    job_store.create(job_id, filename=file.filename)
+    job_store.create(job_id, filename=file.filename, video_url=video_url)
 
     # MasterNode 전송을 백그라운드로 처리
     background_tasks.add_task(
@@ -74,6 +99,7 @@ async def upload_video(
         job_id=job_id,
         status=JobStatus.PENDING,
         message="영상이 접수되었습니다. 처리 중입니다.",
+        video_url=video_url,
     )
 
 
