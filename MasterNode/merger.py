@@ -44,7 +44,7 @@ def merge_goal_results(results: list):
                 current_time
             )
 
-            if diff <= 10:
+            if diff <= 2:
                 duplicated = True
                 break
 
