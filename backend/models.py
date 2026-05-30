@@ -37,3 +37,4 @@ class JobResponse(BaseModel):
     message: Optional[str] = None
     result: Optional[HighlightResult] = None
     error: Optional[str] = None
+    video_url: Optional[str] = None
