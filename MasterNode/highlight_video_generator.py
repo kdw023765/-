@@ -17,7 +17,7 @@ class HighlightVideoGenerator:
         for index, goal in enumerate(all_result):
 
             start = max(float(goal["globalTimeSec"]) - 10, 0)
-            end = float(goal["globalTimeSec"]) + 10
+            duration = 20
 
             output_clip = os.path.abspath(os.path.join(
                 self.output_dir,
@@ -29,12 +29,28 @@ class HighlightVideoGenerator:
                 "-y",
                 "-ss",
                 str(start),
-                "-to",
-                str(end),
                 "-i",
                 origin_video,
-                "-c",
-                "copy",
+                "-t",
+                str(duration),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                "-reset_timestamps",
+                "1",
                 output_clip
             ])
 
@@ -71,8 +87,18 @@ class HighlightVideoGenerator:
             "0",
             "-i",
             concat_file,
-            "-c",
-            "copy",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
             final_output
         ])
 
