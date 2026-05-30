@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { getJobStatus, getStoredJob, type GoalEvent, type JobResponse } from "@/lib/backendApi";
-import { Film, Home, Play, Zap } from "lucide-react";
+import { Film, Home, Play, Zap, Clock, FileText, SlidersHorizontal } from "lucide-react";
 
 function formatMinutes(value: number) {
   const totalSeconds = Math.round(value * 60);
@@ -11,8 +11,32 @@ function formatMinutes(value: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+function formatKoreanTime(value: number) {
+  const totalSeconds = Math.round(value * 60);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}분 ${seconds}초`;
+}
+
 function getConfidencePercent(highlight: GoalEvent) {
   return Math.round(highlight.confidence * 100);
+}
+
+function getStoredOutputOptions(videoId?: string) {
+  if (!videoId) return ["timeline", "txt", "handle"];
+
+  try {
+    const raw = sessionStorage.getItem(`result-output-options:${videoId}`);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed as string[];
+    }
+  } catch {
+    // 기본 표시 방식 사용
+  }
+
+  return ["timeline", "txt", "handle"];
 }
 
 export default function Results() {
@@ -22,6 +46,7 @@ export default function Results() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const storedJob = useMemo(() => (videoId ? getStoredJob(videoId) : undefined), [videoId]);
+  const selectedOutputOptions = useMemo(() => getStoredOutputOptions(videoId), [videoId]);
 
   useEffect(() => {
     if (!videoId) return;
@@ -34,6 +59,10 @@ export default function Results() {
 
   const result = job?.result;
   const highlights = result?.highlights || [];
+  const durationMinutes = result?.total_duration_minutes || 0;
+  const showTimeline = selectedOutputOptions.includes("timeline");
+  const showTxt = selectedOutputOptions.includes("txt");
+  const showHandle = selectedOutputOptions.includes("handle");
 
   if (isLoading) {
     return (
@@ -156,60 +185,143 @@ export default function Results() {
               </p>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 gap-6">
-              {highlights.map((highlight, index) => (
-                <div
-                  key={`${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
-                  className="bg-white rounded-2xl overflow-hidden border border-slate-200 hover:border-blue-300 hover:shadow-lg transition-all duration-300"
-                >
-                  <div className="bg-gradient-to-br from-slate-200 to-slate-300 h-40 flex items-center justify-center relative group">
-                    <Play className="w-12 h-12 text-white opacity-60" />
+            <div className="space-y-6">
+              {showHandle && (
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <SlidersHorizontal className="w-5 h-5 text-blue-600" />
+                    <h4 className="text-lg font-semibold text-slate-900">영상 핸들바</h4>
                   </div>
+                  <div className="h-4 bg-slate-200 rounded-full relative overflow-visible">
+                    {highlights.map((highlight, index) => {
+                      const percent = durationMinutes > 0
+                        ? Math.min(100, Math.max(0, (highlight.timestamp_minutes / durationMinutes) * 100))
+                        : 0;
 
-                  <div className="p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="px-3 py-1 rounded-full text-sm font-semibold border bg-green-100 text-green-700 border-green-300">
-                        골 장면
-                      </span>
-                      <span className="text-xs font-medium text-slate-500">
-                        신뢰도: {getConfidencePercent(highlight)}%
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 mb-4">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-600">발생 시각</span>
-                        <span className="font-semibold text-slate-900">
-                          {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-600">영상 기준</span>
-                        <span className="font-semibold text-slate-900">
-                          {formatMinutes(highlight.timestamp_minutes)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-600">세그먼트</span>
-                        <span className="font-semibold text-slate-900">
-                          {highlight.segment_index}
-                        </span>
-                      </div>
-                    </div>
-
-                    {highlight.description && (
-                      <p className="text-sm text-slate-600 mb-4">
-                        {highlight.description}
-                      </p>
-                    )}
-
-                    <Button variant="outline" className="w-full" disabled>
-                      <Play className="w-4 h-4 mr-2" />
-                      클립 재생 준비 중
-                    </Button>
+                      return (
+                        <div
+                          key={`handle-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 group"
+                          style={{ left: `${percent}%` }}
+                        >
+                          <div className="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow" />
+                          <div className="hidden group-hover:block absolute left-1/2 -translate-x-1/2 top-6 whitespace-nowrap bg-slate-900 text-white text-xs rounded px-2 py-1 z-10">
+                            {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500 mt-3">
+                    <span>0:00</span>
+                    <span>{result ? formatMinutes(result.total_duration_minutes) : "—"}</span>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {showTimeline && (
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <h4 className="text-lg font-semibold text-slate-900">타임라인</h4>
+                  </div>
+                  <div className="space-y-4">
+                    {highlights.map((highlight, index) => (
+                      <div
+                        key={`timeline-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                        className="flex gap-4"
+                      >
+                        <div className="flex flex-col items-center">
+                          <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">
+                            {index + 1}
+                          </div>
+                          {index < highlights.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-2" />}
+                        </div>
+                        <div className="pb-4 flex-1">
+                          <p className="font-semibold text-slate-900">
+                            {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)} 골 장면
+                          </p>
+                          <p className="text-sm text-slate-600 mt-1">
+                            영상 기준 {formatKoreanTime(highlight.timestamp_minutes)} · 신뢰도 {getConfidencePercent(highlight)}%
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {showTxt && (
+                <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    <h4 className="text-lg font-semibold text-slate-900">txt</h4>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-800 leading-7">
+                    {highlights.map((highlight, index) => (
+                      <p key={`txt-${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}>
+                        {index + 1}. 골 장면은 {formatKoreanTime(highlight.timestamp_minutes)}에 발생했습니다.
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {highlights.map((highlight, index) => (
+                  <div
+                    key={`${highlight.segment_index}-${highlight.timestamp_minutes}-${index}`}
+                    className="bg-white rounded-2xl overflow-hidden border border-slate-200 hover:border-blue-300 hover:shadow-lg transition-all duration-300"
+                  >
+                    <div className="bg-gradient-to-br from-slate-200 to-slate-300 h-40 flex items-center justify-center relative group">
+                      <Play className="w-12 h-12 text-white opacity-60" />
+                    </div>
+
+                    <div className="p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="px-3 py-1 rounded-full text-sm font-semibold border bg-green-100 text-green-700 border-green-300">
+                          골 장면
+                        </span>
+                        <span className="text-xs font-medium text-slate-500">
+                          신뢰도: {getConfidencePercent(highlight)}%
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 mb-4">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">발생 시각</span>
+                          <span className="font-semibold text-slate-900">
+                            {highlight.timestamp_str || formatMinutes(highlight.timestamp_minutes)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">영상 기준</span>
+                          <span className="font-semibold text-slate-900">
+                            {formatMinutes(highlight.timestamp_minutes)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-600">세그먼트</span>
+                          <span className="font-semibold text-slate-900">
+                            {highlight.segment_index}
+                          </span>
+                        </div>
+                      </div>
+
+                      {highlight.description && (
+                        <p className="text-sm text-slate-600 mb-4">
+                          {highlight.description}
+                        </p>
+                      )}
+
+                      <Button variant="outline" className="w-full" disabled>
+                        <Play className="w-4 h-4 mr-2" />
+                        클립 재생 준비 중
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
